@@ -1,6 +1,5 @@
-
-Block Explorer URL: https://testnet.snowtrace.io
- SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
+// Block Explorer URL: https://testnet.snowtrace.io
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";

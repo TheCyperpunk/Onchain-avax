@@ -1,13 +1,54 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+@import "tailwindcss";
 @import '@rainbow-me/rainbowkit/styles.css';
 
-html, body {
+/* Custom Zentry Font */
+@font-face {
+  font-family: 'Zentry';
+  src: url('/fonts/zentry-regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+
+  /* Custom animations */
+  --animate-spin: spin 1s linear infinite;
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+html,
+body {
   height: 100%;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-family: var(--font-sans);
+}
+
+/* Custom RainbowKit button styling */
+button[data-testid="rk-connect-button"],
+button[class*="ConnectButton"] {
+  background: linear-gradient(to right, rgb(6 182 212), rgb(16 185 129)) !important;
+  border-radius: 1.5rem !important;
+  transition: all 0.3s ease !important;
+  border: none !important;
+  padding: 0.5rem 1rem !important;
+}
+
+button[data-testid="rk-connect-button"]:hover,
+button[class*="ConnectButton"]:hover {
+  background: linear-gradient(to right, rgb(6 182 212), rgb(16 185 129)) !important;
+  transform: translateY(-2px) scale(1.05) !important;
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.8) !important;
 }
