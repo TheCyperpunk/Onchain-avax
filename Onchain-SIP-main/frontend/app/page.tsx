@@ -9,6 +9,7 @@ import CryptoPriceModal from "../components/CryptoPriceModal";
 import ManageSIP from "../components/ManageSIP";
 import ProfileModal from "../components/ProfileModal";
 import TransactionSIPs from "../components/TransactionSIPs";
+import TokenSelector from "../components/TokenSelector";
 
 // Define proper TypeScript interfaces
 interface FrequencyOption {
@@ -517,45 +518,12 @@ export default function Home() {
                     <label className="block mb-2 text-gray-300 font-medium">
                       Select Token
                     </label>
-                    <div className="bg-gradient-to-r from-orange-600/20 to-orange-700/20 rounded-xl p-4 border border-orange-500/30">
-                      <select
-                        className="w-full bg-black/40 border-none text-white text-lg font-semibold outline-none cursor-pointer px-2 py-2 rounded-lg"
-                      >
-                        <option value="avax" className="bg-gray-800 text-white py-2">
-                          🔺 AVAX - Avalanche
-                        </option>
-                        <option value="eth" className="bg-gray-800 text-white py-2">
-                          ⟠ ETH - Ethereum Sepolia
-                        </option>
-                        <option value="bnb" className="bg-gray-800 text-white py-2">
-                          🟡 BNB - BSC Testnet
-                        </option>
-                        <option value="matic" className="bg-gray-800 text-white py-2">
-                          🟣 MATIC - Polygon Mumbai
-                        </option>
-                        <option value="arb" className="bg-gray-800 text-white py-2">
-                          🔵 ARB - Arbitrum Sepolia
-                        </option>
-                        <option value="op" className="bg-gray-800 text-white py-2">
-                          🔴 OP - Optimism Sepolia
-                        </option>
-                        <option value="ftm" className="bg-gray-800 text-white py-2">
-                          👻 FTM - Fantom Testnet
-                        </option>
-                        <option value="base" className="bg-gray-800 text-white py-2">
-                          🔷 BASE - Base Sepolia
-                        </option>
-                        <option value="celo" className="bg-gray-800 text-white py-2">
-                          🟢 CELO - Celo Alfajores
-                        </option>
-                        <option value="zksync" className="bg-gray-800 text-white py-2">
-                          ⚡ ZK - zkSync Sepolia
-                        </option>
-                      </select>
+                    <div className="bg-gradient-to-r from-blue-600/20 to-blue-700/20 rounded-xl p-3 border border-blue-500/30">
+                      <TokenSelector />
                     </div>
                   </div>
 
-                  <div className="bg-gradient-to-r from-orange-600/20 to-orange-700/20 px-4 py-4 rounded-xl border border-orange-500/30 mb-6">
+                  <div className="bg-gradient-to-r from-blue-600/20 to-blue-700/20 px-4 py-4 rounded-xl border border-blue-500/30 mb-6">
                     <div className="flex justify-between items-center">
                       <div>
                         <p className="text-gray-300 text-sm mb-1">Investment Asset</p>
