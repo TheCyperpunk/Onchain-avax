@@ -1,0 +1,86 @@
+$filePath = "c:\Users\sangeeth karunakaran\Downloads\Onchain-avax\Onchain-SIP-main\frontend\app\page.tsx"
+$lines = Get-Content $filePath
+$newLines = @()
+$inserted = $false
+
+for($i=0; $i -lt $lines.Count; $i++) {
+    $newLines += $lines[$i]
+    
+    if($lines[$i] -match '^\s*</main>\s*$' -and -not $inserted) {
+        $newLines += ''
+        $newLines += '      {/* Modal Components */}'
+        $newLines += '      {showDashboard && ('
+        $newLines += '        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">'
+        $newLines += '          <div className="relative w-full max-w-7xl">'
+        $newLines += '            <button'
+        $newLines += '              onClick={() => setShowDashboard(false)}'
+        $newLines += '              className="absolute top-4 right-4 z-50 text-white hover:text-gray-300 bg-black/50 rounded-full p-2"'
+        $newLines += '            >'
+        $newLines += '              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+        $newLines += '                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />'
+        $newLines += '              </svg>'
+        $newLines += '            </button>'
+        $newLines += '            <Dashboard'
+        $newLines += '              totalSIPs={displaySIPs.length}'
+        $newLines += '              totalInvested={totalPortfolioValue}'
+        $newLines += '              activeSIPs={displaySIPs.map((sip, index) => {'
+        $newLines += '                const formatted = formatSIPData(sip);'
+        $newLines += '                return {'
+        $newLines += '                  id: sip.poolName || `sip-${index}`,'
+        $newLines += '                  tokenName: "AVAX",'
+        $newLines += '                  totalInvested: formatted?.totalAmount || "0",'
+        $newLines += '                  currentValue: formatted?.executedAmount || "0",'
+        $newLines += '                  progress: formatted?.progress || 0,'
+        $newLines += '                  nextExecution: formatted?.nextExecution?.toLocaleDateString() || "N/A",'
+        $newLines += '                  status: "active" as const'
+        $newLines += '                };'
+        $newLines += '              })}'
+        $newLines += '            />'
+        $newLines += '          </div>'
+        $newLines += '        </div>'
+        $newLines += '      )}'
+        $newLines += ''
+        $newLines += '      {showCryptoModal && ('
+        $newLines += '        <CryptoPriceModal onClose={() => setShowCryptoModal(false)} />'
+        $newLines += '      )}'
+        $newLines += ''
+        $newLines += '      {showManageSIP && ('
+        $newLines += '        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">'
+        $newLines += '          <div className="relative w-full max-w-7xl">'
+        $newLines += '            <button'
+        $newLines += '              onClick={() => setShowManageSIP(false)}'
+        $newLines += '              className="absolute top-4 right-4 z-50 text-white hover:text-gray-300 bg-black/50 rounded-full p-2"'
+        $newLines += '            >'
+        $newLines += '              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+        $newLines += '                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />'
+        $newLines += '              </svg>'
+        $newLines += '            </button>'
+        $newLines += '            <ManageSIP'
+        $newLines += '              totalValue={totalPortfolioValue}'
+        $newLines += '              activeSIPs={displaySIPs.map((sip, index) => {'
+        $newLines += '                const formatted = formatSIPData(sip);'
+        $newLines += '                return {'
+        $newLines += '                  id: sip.poolName || `sip-${index}`,'
+        $newLines += '                  tokenName: "AVAX",'
+        $newLines += '                  totalInvested: formatted?.totalAmount || "0",'
+        $newLines += '                  currentValue: formatted?.executedAmount || "0",'
+        $newLines += '                  progress: formatted?.progress || 0,'
+        $newLines += '                  nextExecution: formatted?.nextExecution?.toLocaleDateString() || "N/A",'
+        $newLines += '                  status: "active" as const'
+        $newLines += '                };'
+        $newLines += '              })}'
+        $newLines += '            />'
+        $newLines += '          </div>'
+        $newLines += '        </div>'
+        $newLines += '      )}'
+        $newLines += ''
+        $newLines += '      {showProfileModal && ('
+        $newLines += '        <ProfileModal onClose={() => setShowProfileModal(false)} />'
+        $newLines += '      )}'
+        
+        $inserted = $true
+    }
+}
+
+Set-Content -Path $filePath -Value $newLines
+Write-Host "Modal rendering code added successfully!"
