@@ -8,9 +8,6 @@ let cachedData: any = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-// Helper function to add delay between requests
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export async function GET(request: Request) {
     try {
         // Check if we have valid cached data
@@ -22,12 +19,12 @@ export async function GET(request: Request) {
 
         console.log('Fetching fresh crypto data from CoinGecko...');
 
-        // Fetch 400 coins by making 2 sequential requests with delay
+        // Fetch top 100 coins in a single request to minimize rate-limit risk
         const response1 = await axios.get("https://api.coingecko.com/api/v3/coins/markets", {
             params: {
                 vs_currency: "usd",
                 order: "market_cap_desc",
-                per_page: 200,
+                per_page: 100,
                 page: 1,
                 sparkline: true,
                 price_change_percentage: "1h,24h,7d",
@@ -35,29 +32,11 @@ export async function GET(request: Request) {
             headers: {
                 'Accept': 'application/json',
                 'User-Agent': 'OnchainSIP/1.0'
-            }
-        });
-
-        // Wait 1 second to avoid rate limiting
-        await delay(1000);
-
-        const response2 = await axios.get("https://api.coingecko.com/api/v3/coins/markets", {
-            params: {
-                vs_currency: "usd",
-                order: "market_cap_desc",
-                per_page: 200,
-                page: 2,
-                sparkline: true,
-                price_change_percentage: "1h,24h,7d",
             },
-            headers: {
-                'Accept': 'application/json',
-                'User-Agent': 'OnchainSIP/1.0'
-            }
+            timeout: 15000, // 15 second timeout
         });
 
-        // Combine results
-        const allCoins = [...response1.data, ...response2.data];
+        const allCoins = response1.data;
 
         // Update cache
         cachedData = allCoins;

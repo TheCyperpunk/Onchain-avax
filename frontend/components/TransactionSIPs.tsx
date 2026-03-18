@@ -2,9 +2,11 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { formatEther } from 'viem';
+import { formatEther, createPublicClient, http } from 'viem';
+import { avalancheFuji } from 'viem/chains';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../lib/contract';
 
-interface TransactionSIP {
+interface ContractSIP {
     poolName: string;
     totalAmount: string;
     perInterval: string;
@@ -13,10 +15,11 @@ interface TransactionSIP {
     nextExecution: string;
     maturity: string;
     frequency: string;
+    frequencyLabel: string;
     canExecute: boolean;
-    txHash: string;
-    executionCount: number;
-    lastExecutionTime: string | null;
+    canFinalize: boolean;
+    active: boolean;
+    progress: number;
 }
 
 interface TransactionSIPsProps {
@@ -26,11 +29,18 @@ interface TransactionSIPsProps {
     executeLoading: boolean;
     finalizeLoading: boolean;
     selectedPool: string;
+    refreshKey?: number;
 }
 
-const CONTRACT_ADDRESS = '0xd8540A08f770BAA3b66C4d43728CDBDd1d7A9c3b';
-const CREATE_SIP_METHOD_ID = '0xe1dc1c04';
-const EXECUTE_SIP_METHOD_ID = '0x9c701852';
+const getFrequencyLabel = (seconds: number): string => {
+    const days = seconds / (24 * 3600);
+    if (days >= 365) return `Yearly`;
+    if (days >= 90) return `Quarterly`;
+    if (days >= 30) return `Monthly`;
+    if (days >= 7) return `Weekly`;
+    if (days >= 1) return `Daily`;
+    return `Every ${Math.floor(seconds / 3600)}h`;
+};
 
 export default function TransactionSIPs({
     userAddress,
@@ -38,13 +48,14 @@ export default function TransactionSIPs({
     onFinalize,
     executeLoading,
     finalizeLoading,
-    selectedPool
+    selectedPool,
+    refreshKey
 }: TransactionSIPsProps) {
-    const [sips, setSips] = useState<TransactionSIP[]>([]);
+    const [sips, setSips] = useState<ContractSIP[]>([]);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        const fetchTransactionSIPs = async () => {
+        const fetchContractSIPs = async () => {
             if (!userAddress) {
                 setSips([]);
                 return;
@@ -52,99 +63,100 @@ export default function TransactionSIPs({
 
             setLoading(true);
             try {
-                // Fetch all transactions from user to contract
-                const response = await fetch(
-                    `https://cdn.testnet.routescan.io/api/evm/all/transactions?ecosystem=avalanche&fromAddresses=${userAddress}&toAddresses=${CONTRACT_ADDRESS}&sort=desc&limit=200&count=true`
-                );
+                const publicClient = createPublicClient({
+                    chain: avalancheFuji,
+                    transport: http('https://api.avax-test.network/ext/bc/C/rpc'),
+                });
 
-                if (!response.ok) {
-                    throw new Error('Failed to fetch transactions');
+                // Use on-chain getUserPoolNames to get all pool names
+                let pools: string[] = [];
+                try {
+                    pools = await publicClient.readContract({
+                        address: CONTRACT_ADDRESS as `0x${string}`,
+                        abi: CONTRACT_ABI,
+                        functionName: 'getUserPoolNames',
+                        args: [userAddress as `0x${string}`]
+                    }) as string[];
+                } catch (poolErr: any) {
+                    // viem throws ContractFunctionExecutionError when the user has no pools
+                    if (
+                        poolErr.name === 'ContractFunctionExecutionError' ||
+                        poolErr.name === 'ContractFunctionZeroDataError' ||
+                        poolErr.message?.includes('returned no data') ||
+                        poolErr.message?.includes('0x')
+                    ) {
+                        console.log('No on-chain pools found for user — treating as empty.');
+                        pools = [];
+                    } else {
+                        throw poolErr;
+                    }
                 }
 
-                const data = await response.json();
+                const sipData: ContractSIP[] = [];
 
-                // Separate creation and execution transactions
-                const creationTxs = data.items?.filter((tx: any) =>
-                    tx.methodId === CREATE_SIP_METHOD_ID && tx.status === true
-                ) || [];
+                for (const pool of pools) {
+                    try {
+                        const planData = await publicClient.readContract({
+                            address: CONTRACT_ADDRESS as `0x${string}`,
+                            abi: CONTRACT_ABI,
+                            functionName: 'getPlan',
+                            args: [userAddress as `0x${string}`, pool]
+                        }) as any;
 
-                const executionTxs = data.items?.filter((tx: any) =>
-                    tx.methodId === EXECUTE_SIP_METHOD_ID && tx.status === true
-                ) || [];
+                        if (!planData || planData.totalAmount === 0n) continue;
 
-                // Group execution transactions by pool name (derived from tx hash pattern)
-                const executionsByPool = new Map<string, any[]>();
-                executionTxs.forEach((tx: any) => {
-                    // For now, we'll match by timing - executions happen after creation
-                    // In a real implementation, we'd decode the input to get the pool name
-                    const poolKey = `sip_tx_${tx.txHash.slice(2, 10)}`;
-                    if (!executionsByPool.has(poolKey)) {
-                        executionsByPool.set(poolKey, []);
+                        const total = BigInt(planData.totalAmount);
+                        const executedAmt = BigInt(planData.executedAmount);
+                        const totalAmount = formatEther(total);
+                        const perInterval = formatEther(BigInt(planData.amountPerInterval));
+                        const executed = formatEther(executedAmt);
+                        const remaining = formatEther(total - executedAmt);
+                        const frequencySec = Number(planData.frequency);
+                        const nextExecTime = Number(planData.nextExecution) * 1000;
+                        const maturityTime = Number(planData.maturity) * 1000;
+                        const now = Date.now();
+
+                        const progress = Number(total) > 0
+                            ? (Number(executedAmt) / Number(total)) * 100
+                            : 0;
+
+                        sipData.push({
+                            poolName: pool,
+                            totalAmount,
+                            perInterval,
+                            executed,
+                            remaining,
+                            nextExecution: new Date(nextExecTime).toLocaleDateString() + ' at ' + new Date(nextExecTime).toLocaleTimeString(),
+                            maturity: new Date(maturityTime).toLocaleDateString(),
+                            frequency: `Every ${Math.floor(frequencySec / (24 * 3600))} days`,
+                            frequencyLabel: getFrequencyLabel(frequencySec),
+                            canExecute: planData.active && now >= nextExecTime && now < maturityTime && (executedAmt + BigInt(planData.amountPerInterval) <= total),
+                            canFinalize: planData.active && now >= maturityTime,
+                            active: planData.active,
+                            progress,
+                        });
+                    } catch (err) {
+                        console.warn(`Failed to fetch pool ${pool}:`, err);
                     }
-                    executionsByPool.get(poolKey)!.push(tx);
-                });
-
-                // Create SIP objects from creation transactions
-                const sipData: TransactionSIP[] = creationTxs.map((tx: any, index: number) => {
-                    const poolName = `sip_tx_${tx.txHash.slice(2, 10)}`;
-                    const totalAmount = formatEther(BigInt(tx.value || '0'));
-
-                    // Get execution history for this SIP
-                    const executions = executionsByPool.get(poolName) || [];
-                    const executionCount = executions.length;
-                    const lastExecution = executions.length > 0 ? executions[0] : null;
-
-                    // Calculate per interval (assuming 10 intervals for 6 months)
-                    const perInterval = (parseFloat(totalAmount) / 10).toFixed(4);
-
-                    // Calculate executed amount based on actual executions
-                    const executed = (executionCount * parseFloat(perInterval)).toFixed(4);
-                    const remaining = (parseFloat(totalAmount) - parseFloat(executed)).toFixed(4);
-
-                    // Calculate dates
-                    const txDate = new Date(tx.timestamp);
-                    const lastExecutionDate = lastExecution ? new Date(lastExecution.timestamp) : null;
-
-                    // Next execution is 1 day after last execution, or 1 day after creation if never executed
-                    const baseDate = lastExecutionDate || txDate;
-                    const nextExecution = new Date(baseDate.getTime() + 24 * 60 * 60 * 1000);
-
-                    // Maturity is 6 months after creation
-                    const maturity = new Date(txDate.getTime() + 180 * 24 * 60 * 60 * 1000);
-
-                    return {
-                        poolName,
-                        totalAmount,
-                        perInterval,
-                        executed,
-                        remaining,
-                        nextExecution: nextExecution.toLocaleDateString() + ' at ' + nextExecution.toLocaleTimeString(),
-                        maturity: maturity.toLocaleDateString(),
-                        frequency: 'Every 1 days',
-                        canExecute: Date.now() > nextExecution.getTime(),
-                        txHash: tx.txHash,
-                        executionCount,
-                        lastExecutionTime: lastExecutionDate ?
-                            lastExecutionDate.toLocaleDateString() + ' at ' + lastExecutionDate.toLocaleTimeString() :
-                            null
-                    };
-                });
+                }
 
                 setSips(sipData);
             } catch (error) {
-                console.error('Error fetching transaction SIPs:', error);
+                console.error('Error fetching contract SIPs:', error);
+                setSips([]);
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchTransactionSIPs();
-    }, [userAddress]);
+        fetchContractSIPs();
+    }, [userAddress, refreshKey]);
 
     if (loading) {
         return (
             <div className="text-center py-10 text-slate-400">
-                <p>Loading SIP plans...</p>
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500 mb-3"></div>
+                <p>Loading SIP plans from contract...</p>
             </div>
         );
     }
@@ -163,33 +175,51 @@ export default function TransactionSIPs({
     return (
         <div className="grid gap-6">
             {sips.map((sip, index) => (
-                <div key={sip.txHash} className="bg-black/40 p-6 rounded-xl border border-white/10">
+                <div key={sip.poolName} className="bg-black/40 p-6 rounded-xl border border-transparent">
                     {/* Header */}
-                    <div className="flex justify-between items-start mb-4 pb-3 border-b border-white/10">
-                        <h3 className="text-lg font-semibold">SIP Plan #{index + 1}</h3>
+                    <div className="flex justify-between items-start mb-4 pb-3 border-b border-transparent">
+                        <div className="flex items-center gap-3">
+                            <h3 className="text-lg font-semibold">SIP Plan #{index + 1}</h3>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${sip.active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                                {sip.active ? '● Active' : '● Completed'}
+                            </span>
+                        </div>
                         <span className="text-xs text-gray-400 bg-white/10 px-3 py-1 rounded">
                             Pool: {sip.poolName}
                         </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="mb-5">
+                        <div className="flex justify-between text-sm mb-2">
+                            <span className="text-slate-400">Execution Progress</span>
+                            <span className="text-cyan-400 font-semibold">{sip.progress.toFixed(1)}%</span>
+                        </div>
+                        <div className="bg-black/40 h-2 rounded-full overflow-hidden">
+                            <div
+                                className="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${sip.progress}%` }}
+                            ></div>
+                        </div>
                     </div>
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
                         <div>
                             <p className="text-gray-400 text-sm mb-1">Total Amount</p>
-                            <p className="text-lg font-bold text-green-500">{sip.totalAmount} AVAX</p>
+                            <p className="text-lg font-bold text-green-500">{parseFloat(sip.totalAmount).toFixed(4)} AVAX</p>
                         </div>
                         <div>
-                            <p className="text-gray-400 text-sm mb-1">Per Interval</p>
-                            <p className="text-lg font-bold text-blue-500">{sip.perInterval} AVAX</p>
+                            <p className="text-gray-400 text-sm mb-1">Per Interval ({sip.frequencyLabel})</p>
+                            <p className="text-lg font-bold text-green-500">{parseFloat(sip.perInterval).toFixed(4)} AVAX</p>
                         </div>
                         <div>
                             <p className="text-gray-400 text-sm mb-1">Executed</p>
-                            <p className="text-lg font-bold text-yellow-500">{sip.executed} AVAX</p>
-                            <p className="text-xs text-gray-500">({sip.executionCount} times)</p>
+                            <p className="text-lg font-bold text-green-500">{parseFloat(sip.executed).toFixed(4)} AVAX</p>
                         </div>
                         <div>
                             <p className="text-gray-400 text-sm mb-1">Remaining</p>
-                            <p className="text-lg font-bold text-slate-400">{sip.remaining} AVAX</p>
+                            <p className="text-lg font-bold text-green-500">{parseFloat(sip.remaining).toFixed(4)} AVAX</p>
                         </div>
                     </div>
 
@@ -202,44 +232,18 @@ export default function TransactionSIPs({
                             </p>
                         </div>
                         <div>
-                            <p className="text-gray-400 text-sm mb-1">Last Execution</p>
-                            <p className="text-sm font-medium text-slate-400">
-                                {sip.lastExecutionTime || 'Never executed'}
-                            </p>
+                            <p className="text-gray-400 text-sm mb-1">Frequency</p>
+                            <p className="text-sm font-medium text-slate-400">{sip.frequency}</p>
                         </div>
                         <div>
                             <p className="text-gray-400 text-sm mb-1">Maturity</p>
-                            <p className="text-sm font-medium text-slate-400">{sip.maturity}</p>
+                            <p className={`text-sm font-medium ${sip.canFinalize ? 'text-orange-400' : 'text-slate-400'}`}>
+                                {sip.maturity}
+                            </p>
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-3 flex-wrap items-center">
-                        <button
-                            onClick={() => onExecute(sip.poolName)}
-                            disabled={executeLoading || !sip.canExecute}
-                            className={`px-5 py-3 rounded-lg text-sm font-semibold ${!sip.canExecute
-                                    ? 'bg-gray-600/50 text-white cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
-                                }`}
-                        >
-                            {executeLoading && selectedPool === sip.poolName ? 'Executing...' : 'Execute SIP'}
-                        </button>
 
-                        <button
-                            onClick={() => onFinalize(sip.poolName)}
-                            disabled={finalizeLoading}
-                            className="px-5 py-3 rounded-lg text-sm font-semibold bg-gray-600/50 text-white hover:bg-gray-600"
-                        >
-                            {finalizeLoading && selectedPool === sip.poolName ? 'Finalizing...' : 'Finalize SIP'}
-                        </button>
-
-                        <div className="flex items-center gap-2 ml-auto">
-                            {sip.canExecute && (
-                                <span className="text-green-400 text-sm">● Ready to Execute</span>
-                            )}
-                        </div>
-                    </div>
                 </div>
             ))}
         </div>

@@ -1,6 +1,6 @@
 // hooks/useSIPContract.ts
 import { useState, useEffect } from 'react';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useBlockNumber } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, createPublicClient, http } from 'viem';
 import { avalancheFuji } from 'viem/chains';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../lib/contract';
@@ -188,44 +188,12 @@ export const useSIPContract = () => {
     };
   };
 
-  // Enhanced Get All User SIPs with localStorage support
+  // Enhanced Get All User SIPs using on-chain pool enumeration
   const useGetAllUserSIPs = (userAddress: string | undefined) => {
     const [allSIPs, setAllSIPs] = useState<SIPPlan[]>([]);
     const [poolNames, setPoolNames] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | null>(null);
-
-    const { data: blockNumber } = useBlockNumber();
-
-    // Generate pool names based on stored data + common patterns
-    const generatePossiblePoolNames = (userAddress: string) => {
-      const storedPools = getStoredPools(userAddress);
-      const baseAddress = userAddress.slice(-6);
-      const now = Date.now();
-
-      const possiblePools = [...storedPools]; // Start with stored pools
-
-      // Add default pool
-      if (!possiblePools.includes("default")) {
-        possiblePools.push("default");
-      }
-
-      // Generate time-based pool names for recent days (more focused)
-      for (let days = 0; days < 7; days++) { // Reduced from 30 to 7 days
-        const timestamp = now - (days * 24 * 60 * 60 * 1000);
-
-        // Try different timestamp variations
-        for (let hours = 0; hours < 24; hours += 4) { // Check every 4 hours
-          const adjustedTimestamp = timestamp - (hours * 60 * 60 * 1000);
-          const poolName = `sip_${baseAddress}_${Math.floor(adjustedTimestamp / 1000)}`;
-          if (!possiblePools.includes(poolName)) {
-            possiblePools.push(poolName);
-          }
-        }
-      }
-
-      return possiblePools.slice(0, 30); // Reduced limit
-    };
 
     const fetchAllSIPs = async () => {
       if (!userAddress) {
@@ -243,15 +211,43 @@ export const useSIPContract = () => {
           transport: http('https://api.avax-test.network/ext/bc/C/rpc'),
         });
 
-        const possiblePools = generatePossiblePoolNames(userAddress);
-        console.log(`Generated pool names:`, possiblePools);
+        // Use the on-chain getUserPoolNames function instead of guessing
+        let pools: string[] = [];
+        try {
+          pools = await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'getUserPoolNames',
+            args: [userAddress as `0x${string}`]
+          }) as string[];
+        } catch (poolErr: any) {
+          // viem throws ContractFunctionExecutionError when the user has no pools
+          // (the function returns empty data / "0x" for fresh addresses)
+          if (
+            poolErr.name === 'ContractFunctionExecutionError' ||
+            poolErr.name === 'ContractFunctionZeroDataError' ||
+            poolErr.message?.includes('returned no data') ||
+            poolErr.message?.includes('0x')
+          ) {
+            console.log('No on-chain pools found for user (0x return) — treating as empty.');
+            pools = [];
+          } else {
+            throw poolErr; // re-throw unexpected errors
+          }
+        }
 
-        // Check pools in smaller batches
-        const batchSize = 3; // Reduced batch size
+        console.log(`Found ${pools.length} pools for user from contract:`, pools);
+
+        // Also merge with localStorage pools as a fallback for old SIPs
+        const storedPools = getStoredPools(userAddress);
+        const allPoolNames = [...new Set([...pools, ...storedPools])];
+
         const validSIPs: SIPPlan[] = [];
 
-        for (let i = 0; i < possiblePools.length; i += batchSize) {
-          const batch = possiblePools.slice(i, i + batchSize);
+        // Fetch each pool's data in batches
+        const batchSize = 5;
+        for (let i = 0; i < allPoolNames.length; i += batchSize) {
+          const batch = allPoolNames.slice(i, i + batchSize);
 
           const batchPromises = batch.map(async (pool) => {
             try {
@@ -262,13 +258,8 @@ export const useSIPContract = () => {
                 args: [userAddress as `0x${string}`, pool]
               });
 
-              console.log(`Fetched data for pool ${pool}:`, sipData);
-
-              // Check if plan is empty (returns 0x or all zeros)
-              // An empty struct will have totalAmount = 0 and active = false
               const typedSipData = sipData as any;
               if (!sipData || (typedSipData.totalAmount === 0n && typedSipData.active === false)) {
-                console.warn(`Plan not found or empty for pool ${pool}`);
                 return null;
               }
 
@@ -277,13 +268,12 @@ export const useSIPContract = () => {
                 poolName: pool
               };
 
-              return sipWithPool.active ? sipWithPool : null;
+              // Return both active and inactive SIPs so we can show history
+              return sipWithPool.totalAmount > 0n ? sipWithPool : null;
             } catch (err: any) {
-              // Handle ContractFunctionZeroDataError (0x return)
               if (err.name === 'ContractFunctionZeroDataError' ||
                 err.message?.includes('returned no data') ||
                 err.message?.includes('0x')) {
-                console.warn(`Plan returned 0x for pool ${pool} (doesn't exist)`);
                 return null;
               }
               console.error(`Error fetching pool ${pool}:`, err);
@@ -294,12 +284,9 @@ export const useSIPContract = () => {
           const batchResults = await Promise.all(batchPromises);
           const batchValidSIPs = batchResults.filter((sip): sip is SIPPlan => sip !== null);
           validSIPs.push(...batchValidSIPs);
-
-          // Small delay between batches
-          await new Promise(resolve => setTimeout(resolve, 300));
         }
 
-        console.log(`Valid SIPs found:`, validSIPs);
+        console.log(`Found ${validSIPs.length} SIPs total, ${validSIPs.filter(s => s.active).length} active`);
         setAllSIPs(validSIPs);
         setPoolNames(validSIPs.map(sip => sip.poolName));
 
@@ -315,7 +302,8 @@ export const useSIPContract = () => {
 
     useEffect(() => {
       fetchAllSIPs();
-    }, [userAddress, blockNumber]);
+      // Only refetch when user address changes, not on every block
+    }, [userAddress]);
 
     return {
       allSIPs,
@@ -323,18 +311,18 @@ export const useSIPContract = () => {
       isLoading,
       error,
       refetch: fetchAllSIPs,
-      hasActiveSIPs: allSIPs.length > 0
+      hasActiveSIPs: allSIPs.filter((s: SIPPlan) => s.active).length > 0
     };
   };
 
   // Execute SIP Interval
-  const useExecuteSIP = (pool: string) => {
+  const useExecuteSIP = () => {
     const { writeContract, data, error, isPending } = useWriteContract();
     const { isLoading: isWaiting, isSuccess, error: txError } = useWaitForTransactionReceipt({
       hash: data,
     });
 
-    const executeSIP = () => {
+    const executeSIP = (pool: string) => {
       if (!pool) return;
 
       writeContract({
@@ -351,18 +339,17 @@ export const useSIPContract = () => {
       isLoading: isPending || isWaiting,
       isSuccess,
       error: error || txError,
-      canExecute: Boolean(pool)
     };
   };
 
   // Finalize SIP
-  const useFinalizeSIP = (pool: string) => {
+  const useFinalizeSIP = () => {
     const { writeContract, data, error, isPending } = useWriteContract();
     const { isLoading: isWaiting, isSuccess, error: txError } = useWaitForTransactionReceipt({
       hash: data,
     });
 
-    const finalizeSIP = () => {
+    const finalizeSIP = (pool: string) => {
       if (!pool) return;
 
       writeContract({
@@ -379,7 +366,6 @@ export const useSIPContract = () => {
       isLoading: isPending || isWaiting,
       isSuccess,
       error: error || txError,
-      canFinalize: Boolean(pool)
     };
   };
 
@@ -409,10 +395,10 @@ export const useSIPContract = () => {
           const currentBlock = await publicClient.getBlockNumber();
           console.log(`Current block: ${currentBlock}`);
 
-          // Fetch events from last 500k blocks (approximately 1-2 months on Avalanche)
-          const blocksToSearch = 500000n;
+          // Fetch events from last 50k blocks (approximately 1-2 days on Avalanche Fuji)
+          const blocksToSearch = 50000n;
           const fromBlock = currentBlock > blocksToSearch ? currentBlock - blocksToSearch : 0n;
-          const chunkSize = 2000n; // RPC limit is 2048, use 2000 to be safe
+          const chunkSize = 10000n; // Larger chunks to minimize RPC calls
 
           console.log(`Searching for events from block ${fromBlock} to ${currentBlock}`);
 
@@ -668,9 +654,14 @@ export const formatSIPData = (plan: SIPPlan | undefined, userAddress?: string) =
     frequencyDays: Math.floor(Number(plan.frequency) / (24 * 3600)),
     isNative: plan.token === '0x0000000000000000000000000000000000000000',
     active: plan.active,
-    progress: Number(plan.executedAmount) / Number(plan.totalAmount) * 100,
-    canExecute: Date.now() >= Number(plan.nextExecution) * 1000,
-    canFinalize: Date.now() >= Number(plan.maturity) * 1000,
+    progress: Number(plan.totalAmount) > 0
+      ? (Number(plan.executedAmount) / Number(plan.totalAmount)) * 100
+      : 0,
+    canExecute: plan.active &&
+      Date.now() >= Number(plan.nextExecution) * 1000 &&
+      Date.now() < Number(plan.maturity) * 1000 &&
+      Number(plan.executedAmount) + Number(plan.amountPerInterval) <= Number(plan.totalAmount),
+    canFinalize: plan.active && Date.now() >= Number(plan.maturity) * 1000,
     poolName: plan.poolName,
     // Explorer links
     contractLink: getFujiTestnetLink('address', CONTRACT_ADDRESS),
@@ -691,10 +682,7 @@ export const formatMultipleSIPsData = (plans: SIPPlan[], userAddress?: string) =
 // Get total portfolio value across all SIPs
 export const getTotalPortfolioValue = (plans: SIPPlan[]) => {
   const total = plans.reduce((acc, plan) => {
-    if (plan.active) {
-      return acc + Number(formatEther(plan.totalAmount));
-    }
-    return acc;
+    return acc + Number(formatEther(plan.totalAmount));
   }, 0);
 
   return total.toFixed(4);
@@ -703,10 +691,7 @@ export const getTotalPortfolioValue = (plans: SIPPlan[]) => {
 // Get total executed amount across all SIPs
 export const getTotalExecutedAmount = (plans: SIPPlan[]) => {
   const total = plans.reduce((acc, plan) => {
-    if (plan.active) {
-      return acc + Number(formatEther(plan.executedAmount));
-    }
-    return acc;
+    return acc + Number(formatEther(plan.executedAmount));
   }, 0);
 
   return total.toFixed(4);

@@ -1,4 +1,4 @@
-export const CONTRACT_ADDRESS = "0xd8540A08f770BAA3b66C4d43728CDBDd1d7A9c3b"; // your deployed address
+export const CONTRACT_ADDRESS = "0x094bf41C9aD82016972F3Ae0F3aE5Ab217174a95"; // your deployed address
 
 export const AVAX_FUJI_CHAIN = {
   id: 43113,

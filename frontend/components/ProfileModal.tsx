@@ -2,6 +2,7 @@
 
 import { useAccount, useChainId, useBalance } from "wagmi";
 import { useState, useEffect } from "react";
+import { PiggyBank, Send, CheckCircle2 } from "lucide-react";
 
 interface ProfileModalProps {
     isOpen: boolean;
@@ -44,6 +45,16 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
         }
     }, [isOpen, address]);
 
+    // Lock body scroll when modal is open
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => { document.body.style.overflow = ''; };
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const copyToClipboard = (text: string) => {
@@ -78,10 +89,10 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
     };
 
     // Calculate total SIP investment
-    const SIP_CONTRACT_ADDRESS = '0xd8540A08f770BAA3b66C4d43728CDBDd1d7A9c3b';
+    const SIP_CONTRACT_ADDRESS = '0x094bf41C9aD82016972F3Ae0F3aE5Ab217174a95';
     const sipTransactions = transactions.filter(tx =>
-        tx.to.id.toLowerCase() === SIP_CONTRACT_ADDRESS.toLowerCase() &&
-        tx.from.id.toLowerCase() === address?.toLowerCase()
+        tx.to?.id?.toLowerCase() === SIP_CONTRACT_ADDRESS.toLowerCase() &&
+        tx.from?.id?.toLowerCase() === address?.toLowerCase()
     );
     const totalSIPInvestment = sipTransactions.reduce((sum, tx) => sum + (parseFloat(tx.value) / 1e18), 0);
 
@@ -92,10 +103,10 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
     const displaySIPCount = totalSIPs > 0 ? totalSIPs : calculatedSIPCount;
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl w-[95vw] max-w-[1600px] max-h-[95vh] overflow-hidden border border-white/20 shadow-2xl">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl w-[95vw] max-w-[1600px] max-h-[95vh] overflow-hidden shadow-2xl">
                 {/* Header */}
-                <div className="flex justify-between items-center px-6 py-4 border-b border-white/10 bg-black/20">
+                <div className="flex justify-between items-center px-6 py-4 border-b border-transparent bg-black/20">
                     <h2 className="text-3xl font-bold text-white">Profile</h2>
                     <button
                         onClick={onClose}
@@ -250,12 +261,13 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
                                                 <div key={tx.txHash + index} className="bg-black/40 rounded-xl p-4 hover:border-white/20 transition-all">
                                                     <div className="flex items-center justify-between mb-2">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isReceived ? 'bg-green-500/20' : 'bg-orange-500/20'
+                                                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center transform transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] ${isReceived ? 'bg-gradient-to-br from-slate-600 to-slate-800 border border-slate-500/30 shadow-[0_0_15px_rgba(255,255,255,0.05)]' : 'bg-gradient-to-br from-green-500/20 to-green-600/10 border border-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.1)]'
                                                                 }`}>
-                                                                <span className={`text-lg ${isReceived ? 'text-green-400' : 'text-orange-400'
-                                                                    }`}>
-                                                                    {isReceived ? '↓' : '↑'}
-                                                                </span>
+                                                                {isReceived ? (
+                                                                    <PiggyBank className="w-5 h-5 text-white drop-shadow-md" strokeWidth={2.5} />
+                                                                ) : (
+                                                                    <Send className="w-5 h-5 text-green-400 drop-shadow-md" strokeWidth={2.5} />
+                                                                )}
                                                             </div>
                                                             <div>
                                                                 <p className="text-white font-semibold">
@@ -267,14 +279,14 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <p className={`font-bold ${isReceived ? 'text-green-400' : 'text-orange-400'
+                                                            <p className={`font-bold ${isReceived ? 'text-white' : 'text-green-400'
                                                                 }`}>
                                                                 {isReceived ? '+' : '-'}{value.toFixed(4)} AVAX
                                                             </p>
                                                             <p className="text-slate-400 text-xs">{timeAgo}</p>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                                                    <div className="flex items-center justify-between mt-2 pt-2">
                                                         <a
                                                             href={`https://testnet.snowtrace.io/tx/${tx.txHash}`}
                                                             target="_blank"
@@ -286,8 +298,11 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                                             </svg>
                                                         </a>
-                                                        <span className={`px-2 py-1 rounded text-xs ${tx.status ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                                        <span className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1 border ${tx.status
+                                                            ? 'bg-transparent text-[#06b6d4] border-[#06b6d4]/40'
+                                                            : 'bg-transparent text-[#ef4444] border-[#dc2626]/40'
                                                             }`}>
+                                                            {tx.status && <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={2.5} />}
                                                             {tx.status ? 'Success' : 'Failed'}
                                                         </span>
                                                     </div>

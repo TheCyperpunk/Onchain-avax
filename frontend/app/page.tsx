@@ -10,6 +10,9 @@ import ManageSIP from "../components/ManageSIP";
 import ProfileModal from "../components/ProfileModal";
 import TransactionSIPs from "../components/TransactionSIPs";
 import TokenSelector from "../components/TokenSelector";
+import { RefreshCw } from "lucide-react";
+import useWindowSize from "react-use/lib/useWindowSize";
+import Confetti from "react-confetti";
 
 // Define proper TypeScript interfaces
 interface FrequencyOption {
@@ -30,14 +33,14 @@ export default function Home() {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
 
-  // Force use of recovered pool name for this session
-  const RECOVERED_POOL = 'sip_ECE386_1756552715';
-
   const [isHydrated, setIsHydrated] = useState(false);
   const [showSIPForm, setShowSIPForm] = useState(false);
-  const [currentPool, setCurrentPool] = useState(RECOVERED_POOL);
-  const [txStatus, setTxStatus] = useState("");
+  const [currentPool, setCurrentPool] = useState("");
+  const [txStatus, setTxStatus] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [selectedSIPPool, setSelectedSIPPool] = useState<string>("");
+  const [sipRefreshKey, setSipRefreshKey] = useState(0);
+
+  const { width, height } = useWindowSize();
 
   // SIP form states with proper types
   const [totalInvestment, setTotalInvestment] = useState(0.2);
@@ -76,19 +79,14 @@ export default function Home() {
     setIsHydrated(true);
   }, []);
 
-  // Generate unique pool name for new SIPs
+  // Generate unique pool name for new SIPs — always generate a fresh one
+  // Generate when the form opens so the hook has the correct pool name
   useEffect(() => {
-    if (address && !hasActiveSIPs) {
-      let pool = currentPool;
-      if (!pool || pool === 'default') {
-        pool = generatePoolName(address, Date.now());
-        setCurrentPool(pool);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('onchain_sip_last_pool', pool);
-        }
-      }
+    if (address && showSIPForm) {
+      const pool = generatePoolName(address, Date.now());
+      setCurrentPool(pool);
     }
-  }, [address, hasActiveSIPs]);
+  }, [address, showSIPForm]);
 
   const validateInputs = () => {
     if (totalInvestment < 0.2) return "Minimum investment is 0.2 AVAX";
@@ -185,15 +183,13 @@ export default function Home() {
     executeSIP,
     isLoading: executeLoading,
     isSuccess: executeSuccess,
-    canExecute: canExecuteContract
-  } = useExecuteSIP(selectedSIPPool);
+  } = useExecuteSIP();
 
   const {
     finalizeSIP,
     isLoading: finalizeLoading,
     isSuccess: finalizeSuccess,
-    canFinalize: canFinalizeContract
-  } = useFinalizeSIP(selectedSIPPool);
+  } = useFinalizeSIP();
 
   const handleCreateSIP = async () => {
     const error = validateInputs();
@@ -208,45 +204,33 @@ export default function Home() {
     }
 
     try {
-      setTxStatus("Creating SIP plan...");
-      // Only generate a new pool name if there are already active SIPs
-      let pool = currentPool;
-      if (hasActiveSIPs) {
-        pool = generatePoolName(address || "", Date.now());
-        setCurrentPool(pool);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('onchain_sip_last_pool', pool);
-        }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('onchain_sip_last_pool', currentPool);
       }
       createSIP?.();
     } catch (err) {
       console.error("Error creating SIP:", err);
       setErrors("Failed to create SIP");
-      setTxStatus("");
     }
   };
 
   const handleExecuteSIP = async (poolName: string) => {
-    if (!canExecuteContract) return;
+    if (!poolName) return;
     try {
       setSelectedSIPPool(poolName);
-      setTxStatus("Executing SIP interval...");
-      executeSIP?.();
+      executeSIP?.(poolName);
     } catch (err) {
       console.error("Error executing SIP:", err);
-      setTxStatus("");
     }
   };
 
   const handleFinalizeSIP = async (poolName: string) => {
-    if (!canFinalizeContract) return;
+    if (!poolName) return;
     try {
       setSelectedSIPPool(poolName);
-      setTxStatus("Finalizing SIP...");
-      finalizeSIP?.();
+      finalizeSIP?.(poolName);
     } catch (err) {
       console.error("Error finalizing SIP:", err);
-      setTxStatus("");
     }
   };
 
@@ -254,33 +238,33 @@ export default function Home() {
   useEffect(() => {
     if (createSuccess) {
       setShowSIPForm(false);
-      setTxStatus("SIP created successfully!");
+      setTxStatus({ message: "SIP created successfully!", type: 'success' });
       refetchAllSIPs();
-      setTimeout(() => setTxStatus(""), 5000);
+      setTimeout(() => setTxStatus(null), 5000);
     }
   }, [createSuccess]);
 
   useEffect(() => {
     if (executeSuccess) {
-      setTxStatus("SIP executed successfully!");
+      setTxStatus({ message: "SIP executed successfully!", type: 'success' });
       refetchAllSIPs();
-      setTimeout(() => setTxStatus(""), 5000);
+      setTimeout(() => setTxStatus(null), 5000);
     }
   }, [executeSuccess]);
 
   useEffect(() => {
     if (finalizeSuccess) {
-      setTxStatus("SIP finalized successfully!");
+      setTxStatus({ message: "SIP finalized successfully!", type: 'success' });
       refetchAllSIPs();
-      setTimeout(() => setTxStatus(""), 5000);
+      setTimeout(() => setTxStatus(null), 5000);
     }
   }, [finalizeSuccess]);
 
   // Error handling
   useEffect(() => {
     if (createError) {
-      setTxStatus(`Error: ${createError.message}`);
-      setTimeout(() => setTxStatus(""), 5000);
+      setTxStatus({ message: `Error: ${createError.message}`, type: 'error' });
+      setTimeout(() => setTxStatus(null), 5000);
     }
   }, [createError]);
 
@@ -399,10 +383,55 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Transaction Status */}
-      {txStatus && (
-        <div className={`px-6 py-3 text-center ${txStatus.includes('Error') ? 'bg-red-500/20 border border-red-500 text-red-500' : 'bg-green-500/20 border border-green-500 text-green-500'}`}>
-          {txStatus}
+      {/* Confetti Animation */}
+      {txStatus && txStatus.type === 'success' && (
+        <div className="fixed inset-0 z-[110] pointer-events-none">
+          <Confetti 
+            width={width} 
+            height={height} 
+            recycle={false} 
+            numberOfPieces={500}
+            gravity={0.15}
+          />
+        </div>
+      )}
+
+      {/* Stacked Toast Notification */}
+      {txStatus && txStatus.type === 'success' && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] transition-all duration-500 ease-out animate-in slide-in-from-top-4 fade-in">
+          <div className="relative">
+            {/* Background stacked layers for the "multiple notifications" effect */}
+            <div className="absolute top-1.5 left-1/2 transform -translate-x-1/2 w-[90%] h-full bg-[#8e8e8e] rounded-xl -z-20"></div>
+            <div className="absolute top-0.5 left-1/2 transform -translate-x-1/2 w-[95%] h-full bg-[#a3a3a3] rounded-xl -z-10"></div>
+            
+            {/* Main top toast card */}
+            <div className="bg-[#b5b5b5] rounded-xl p-3 min-w-[280px] max-w-sm flex flex-col gap-1 shadow-2xl">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  {/* Icon area */}
+                  <div className={`w-6 h-6 rounded-md flex items-center justify-center bg-white text-emerald-500 shadow-sm`}>
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-gray-800 text-xs font-bold uppercase tracking-wider">
+                      SUCCESS
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center">
+                  <span className="text-gray-600 text-[10px] font-medium mt-0.5">Just now</span>
+                </div>
+              </div>
+
+              <div className="pt-0.5 pl-1">
+                <p className="text-gray-900 font-bold text-sm">
+                  {txStatus.message}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -440,14 +469,14 @@ export default function Home() {
                   Please switch to Avalanche Fuji Testnet to use OnchainSIP
                 </p>
                 <p className="text-red-300 text-sm mt-2">
-                  Contract Address: 0xd8540A08f770BAA3b66C4d43728CDBDd1d7A9c3b
+                  Contract Address: 0x094bf41C9aD82016972F3Ae0F3aE5Ab217174a95
                 </p>
               </div>
             )}
 
             {/* Portfolio Summary */}
             {hasActiveSIPs && (
-              <div className="bg-slate-800/60 rounded-2xl p-6 border border-white/10">
+              <div className="bg-white/10 rounded-2xl p-6">
                 <h2 className="text-2xl font-bold mb-4">Portfolio Overview</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
@@ -456,11 +485,11 @@ export default function Home() {
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm mb-1">Total Executed</p>
-                    <p className="text-2xl font-bold text-blue-500">{totalExecutedAmount} AVAX</p>
+                    <p className="text-2xl font-bold text-green-500">{totalExecutedAmount} AVAX</p>
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm mb-1">Active SIPs</p>
-                    <p className="text-2xl font-bold text-yellow-500">{finalSIPs.length}</p>
+                    <p className="text-2xl font-bold text-green-500">{finalSIPs.length}</p>
                   </div>
                 </div>
               </div>
@@ -477,11 +506,11 @@ export default function Home() {
               </button>
 
               <button
-                onClick={() => refetchAllSIPs()}
+                onClick={() => { refetchAllSIPs(); setSipRefreshKey(k => k + 1); }}
                 disabled={!isAvaxFuji}
                 className={`px-6 py-2 rounded-xl text-base font-bold transition-all ${isAvaxFuji ? 'bg-white/10 text-white border border-white/20 hover:bg-white/20' : 'bg-gray-600/50 text-white cursor-not-allowed'}`}
               >
-                🔄 Refresh SIPs
+                <span className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Refresh SIPs</span>
               </button>
             </div>
 
@@ -495,13 +524,14 @@ export default function Home() {
                 executeLoading={executeLoading}
                 finalizeLoading={finalizeLoading}
                 selectedPool={selectedSIPPool}
+                refreshKey={sipRefreshKey}
               />
             </div>
 
             {/* SIP Creation Form Modal */}
             {showSIPForm && (
-              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6">
-                <div className="bg-slate-900/95 rounded-2xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/10">
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
+                <div className="bg-slate-900/95 rounded-2xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto">
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="text-2xl font-bold">Create SIP Plan</h3>
                     <button
@@ -518,12 +548,12 @@ export default function Home() {
                     <label className="block mb-2 text-gray-300 font-medium">
                       Select Token
                     </label>
-                    <div className="bg-gradient-to-r from-blue-600/20 to-blue-700/20 rounded-xl p-3 border border-blue-500/30">
+                    <div className="bg-gradient-to-r from-blue-600/20 to-blue-700/20 rounded-xl p-3">
                       <TokenSelector />
                     </div>
                   </div>
 
-                  <div className="bg-gradient-to-r from-blue-600/20 to-blue-700/20 px-4 py-4 rounded-xl border border-blue-500/30 mb-6">
+                  <div className="bg-gradient-to-r from-blue-600/20 to-blue-700/20 px-4 py-4 rounded-xl mb-6">
                     <div className="flex justify-between items-center">
                       <div>
                         <p className="text-gray-300 text-sm mb-1">Investment Asset</p>
@@ -592,7 +622,7 @@ export default function Home() {
                         {frequencies.map((f) => (
                           <label
                             key={f.label}
-                            className={`flex items-center justify-between p-4 rounded-xl cursor-pointer border-2 transition-all ${selectedFreq?.label === f.label ? 'bg-blue-500/20 border-blue-500' : 'bg-black/20 border-transparent'}`}
+                            className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all ${selectedFreq?.label === f.label ? 'bg-blue-500/20' : 'bg-black/20'}`}
                             onClick={() => setSelectedFreq(f)}
                           >
                             <div className="flex items-center">
@@ -625,7 +655,7 @@ export default function Home() {
                   <div className="flex gap-3">
                     <button
                       onClick={() => setShowSIPForm(false)}
-                      className="flex-1 bg-white/10 text-white border border-white/20 px-4 py-4 rounded-xl text-base font-semibold hover:bg-white/20"
+                      className="flex-1 bg-white/10 text-white px-4 py-4 rounded-xl text-base font-semibold hover:bg-white/20"
                     >
                       Cancel
                     </button>
@@ -662,7 +692,7 @@ export default function Home() {
               currentValue: formatted?.executedAmount || "0",
               progress: formatted?.progress || 0,
               nextExecution: formatted?.nextExecution?.toLocaleDateString() || "N/A",
-              status: "active" as const
+              status: sip.active ? "active" : "completed"
             };
           })}
         />
@@ -677,16 +707,45 @@ export default function Home() {
           isOpen={showManageSIP}
           onClose={() => setShowManageSIP(false)}
           totalValue={totalPortfolioValue}
+          onExecute={handleExecuteSIP}
+          onFinalize={handleFinalizeSIP}
+          executeLoading={executeLoading}
+          finalizeLoading={finalizeLoading}
+          selectedPool={selectedSIPPool}
           activeSIPs={finalSIPs.map((sip, index) => {
             const formatted = formatSIPData(sip);
+            const totalAmt = Number(sip.totalAmount);
+            const executedAmt = Number(sip.executedAmount);
+            const perInterval = Number(sip.amountPerInterval);
+            const installmentsDone = perInterval > 0 ? Math.floor(executedAmt / perInterval) : 0;
+            const totalInstallments = perInterval > 0 ? Math.floor(totalAmt / perInterval) : 0;
+            const frequencySeconds = Number(sip.frequency);
+            const frequencyDays = frequencySeconds / (24 * 3600);
+
+            let frequencyLabel = 'Custom';
+            if (frequencyDays >= 365) frequencyLabel = 'Yearly';
+            else if (frequencyDays >= 90) frequencyLabel = 'Quarterly';
+            else if (frequencyDays >= 28) frequencyLabel = 'Monthly';
+            else if (frequencyDays >= 7) frequencyLabel = 'Weekly';
+            else if (frequencyDays >= 1) frequencyLabel = 'Daily';
+
             return {
               id: sip.poolName || `sip-${index}`,
               tokenName: "AVAX",
-              totalInvested: formatted?.totalAmount || "0",
-              currentValue: formatted?.executedAmount || "0",
+              totalAmount: formatted?.totalAmount || "0",
+              executedAmount: formatted?.executedAmount || "0",
+              remainingAmount: formatted?.remainingAmount || "0",
+              amountPerInterval: formatted?.amountPerInterval || "0",
+              installmentsDone,
+              totalInstallments,
+              remainingInstallments: totalInstallments - installmentsDone,
+              frequencyLabel,
               progress: formatted?.progress || 0,
               nextExecution: formatted?.nextExecution?.toLocaleDateString() || "N/A",
-              status: "active" as const
+              maturityDate: formatted?.maturity?.toLocaleDateString() || "N/A",
+              active: sip.active,
+              canExecute: formatted?.canExecute || false,
+              canFinalize: formatted?.canFinalize || false,
             };
           })}
         />

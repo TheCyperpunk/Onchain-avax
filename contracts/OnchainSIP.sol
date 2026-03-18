@@ -20,6 +20,10 @@ contract OnchainSIP {
 
     mapping(address => mapping(string => SIPPlan)) public userPlans; // user => pool => plan
 
+    // Track all pool names per user so we can enumerate them on-chain
+    mapping(address => string[]) public userPoolNames;
+    mapping(address => mapping(string => bool)) private poolExists;
+
     event PlanCreated(address indexed user, string pool, uint256 total, uint256 intervalAmount);
     event SIPExecuted(address indexed user, string pool, uint256 amount, uint256 time);
     event SIPFinalized(address indexed user, string pool, uint256 remainingAmount);
@@ -53,6 +57,12 @@ contract OnchainSIP {
             active: true
         });
 
+        // Track pool name for on-chain enumeration
+        if (!poolExists[msg.sender][pool]) {
+            userPoolNames[msg.sender].push(pool);
+            poolExists[msg.sender][pool] = true;
+        }
+
         emit PlanCreated(msg.sender, pool, totalAmount, amountPerInterval);
     }
 
@@ -81,6 +91,12 @@ contract OnchainSIP {
             active: true
         });
 
+        // Track pool name for on-chain enumeration
+        if (!poolExists[msg.sender][pool]) {
+            userPoolNames[msg.sender].push(pool);
+            poolExists[msg.sender][pool] = true;
+        }
+
         emit PlanCreated(msg.sender, pool, msg.value, amountPerInterval);
     }
 
@@ -94,6 +110,13 @@ contract OnchainSIP {
 
         plan.executedAmount += plan.amountPerInterval;
         plan.nextExecution += plan.frequency;
+
+        // Transfer funds to destination address
+        if (plan.token == address(0)) {
+            payable(plan.destAddress).transfer(plan.amountPerInterval);
+        } else {
+            IERC20(plan.token).transfer(plan.destAddress, plan.amountPerInterval);
+        }
 
         emit SIPExecuted(msg.sender, pool, plan.amountPerInterval, block.timestamp);
     }
@@ -120,6 +143,16 @@ contract OnchainSIP {
     /// @notice View a user's plan
     function getPlan(address user, string memory pool) external view returns (SIPPlan memory) {
         return userPlans[user][pool];
+    }
+
+    /// @notice Get all pool names for a user (enables on-chain enumeration)
+    function getUserPoolNames(address user) external view returns (string[] memory) {
+        return userPoolNames[user];
+    }
+
+    /// @notice Get count of pools for a user
+    function getUserPoolCount(address user) external view returns (uint256) {
+        return userPoolNames[user].length;
     }
 
     // Allow contract to receive AVAX
