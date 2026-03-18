@@ -9,9 +9,9 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export async function GET(
     request: Request,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
-    const id = params.id;
+    const { id } = await params;
 
     if (!id) {
         return NextResponse.json({ error: 'Coin ID is required' }, { status: 400 });
