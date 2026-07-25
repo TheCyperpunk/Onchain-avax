@@ -6,6 +6,9 @@ import { formatEther } from "viem";
 import Image from "next/image";
 import avaxLogo from "../image/avalanche-avax-logo.png";
 import { Activity, Zap } from "lucide-react";
+import { useLockBodyScroll } from "../hooks/useLockBodyScroll";
+import { useWalletTransactions } from "../hooks/useWalletTransactions";
+import { useClipboard } from "../hooks/useClipboard";
 
 interface DashboardProps {
     isOpen: boolean;
@@ -26,50 +29,10 @@ interface DashboardProps {
 export default function Dashboard({ isOpen, onClose, totalSIPs, totalInvested, activeSIPs }: DashboardProps) {
     const { address, isConnected } = useAccount();
     const { data: balance } = useBalance({ address });
-    const [copiedAddress, setCopiedAddress] = useState(false);
-    const [transactions, setTransactions] = useState<any[]>([]);
-    const [loadingTransactions, setLoadingTransactions] = useState(false);
+    const { copied: copiedAddress, copy: copyToClipboard } = useClipboard();
+    const { transactions, isLoading: loadingTransactions } = useWalletTransactions(address, isOpen);
 
-    // Fetch transaction history
-    useEffect(() => {
-        const fetchTransactions = async () => {
-            if (!address) return;
-
-            setLoadingTransactions(true);
-            try {
-                const response = await fetch(
-                    `https://cdn.testnet.routescan.io/api/evm/all/address/${address}/internal-operations?ecosystem=avalanche&sort=desc&limit=100&count=true`
-                );
-                const data = await response.json();
-                setTransactions(data.items || []);
-            } catch (error) {
-                console.error('Error fetching transactions:', error);
-                setTransactions([]);
-            } finally {
-                setLoadingTransactions(false);
-            }
-        };
-
-        if (isOpen && address) {
-            fetchTransactions();
-        }
-    }, [isOpen, address]);
-
-    // Lock body scroll when modal is open
-    useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-        return () => { document.body.style.overflow = ''; };
-    }, [isOpen]);
-
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        setCopiedAddress(true);
-        setTimeout(() => setCopiedAddress(false), 2000);
-    };
+    useLockBodyScroll(isOpen);
 
     // Calculate total SIP investment from transactions
     const SIP_CONTRACT_ADDRESS = '0x094bf41C9aD82016972F3Ae0F3aE5Ab217174a95';

@@ -2,6 +2,9 @@
 
 import { useAccount, useChainId, useBalance } from "wagmi";
 import { useState, useEffect } from "react";
+import { useLockBodyScroll } from "../hooks/useLockBodyScroll";
+import { useWalletTransactions } from "../hooks/useWalletTransactions";
+import { useClipboard } from "../hooks/useClipboard";
 import { PiggyBank, Send, CheckCircle2 } from "lucide-react";
 
 interface ProfileModalProps {
@@ -16,52 +19,12 @@ export default function ProfileModal({ isOpen, onClose, totalSIPs, totalInvested
     const { address, isConnected } = useAccount();
     const chainId = useChainId();
     const { data: balance } = useBalance({ address });
-    const [copiedAddress, setCopiedAddress] = useState(false);
-    const [transactions, setTransactions] = useState<any[]>([]);
-    const [loadingTxs, setLoadingTxs] = useState(false);
+    const { copied: copiedAddress, copy: copyToClipboard } = useClipboard();
+    const { transactions, isLoading: loadingTxs } = useWalletTransactions(address, isOpen);
 
-    // Fetch transaction history
-    useEffect(() => {
-        const fetchTransactions = async () => {
-            if (!address) return;
-
-            setLoadingTxs(true);
-            try {
-                const response = await fetch(
-                    `https://cdn.testnet.routescan.io/api/evm/all/address/${address}/internal-operations?ecosystem=avalanche&sort=desc&limit=100&count=true`
-                );
-                const data = await response.json();
-                setTransactions(data.items || []);
-            } catch (error) {
-                console.error('Error fetching transactions:', error);
-                setTransactions([]);
-            } finally {
-                setLoadingTxs(false);
-            }
-        };
-
-        if (isOpen && address) {
-            fetchTransactions();
-        }
-    }, [isOpen, address]);
-
-    // Lock body scroll when modal is open
-    useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-        return () => { document.body.style.overflow = ''; };
-    }, [isOpen]);
+    useLockBodyScroll(isOpen);
 
     if (!isOpen) return null;
-
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        setCopiedAddress(true);
-        setTimeout(() => setCopiedAddress(false), 2000);
-    };
 
     const openBSCScan = () => {
         if (address) {

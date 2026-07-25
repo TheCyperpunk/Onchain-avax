@@ -2,10 +2,21 @@
 
 import { useState, useEffect } from "react";
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip, XAxis } from "recharts";
-import axios from "axios";
 import { ArrowLeft } from "lucide-react";
+import { formatCurrency, formatDate, formatNumber, formatPercentage } from "../lib/crypto/format";
+import type { CryptoData } from "../lib/crypto/types";
+import { useCryptoPrices } from "../hooks/crypto/useCryptoPrices";
+import { useCoinDetails } from "../hooks/crypto/useCoinDetails";
+import { useCryptoSearch } from "../hooks/crypto/useCryptoSearch";
+import { useLockBodyScroll } from "../hooks/useLockBodyScroll";
+import { CryptoDataRow as Row, PercentageBadge as PctBadge } from "./crypto/CryptoDisplay";
 
-interface CryptoData {
+interface CryptoPriceModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+/*interface CryptoData {
     id: string;
     symbol: string;
     name: string;
@@ -63,101 +74,27 @@ interface CryptoPriceModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
+*/
 
 // ---- FORMATTING HELPERS ----
-const fmt$ = (v: number | undefined | null, dp = 2) => {
-    if (v === undefined || v === null) return "N/A";
-    const abs = Math.abs(v);
-    if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
-    if (abs >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
-    if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: abs >= 1 ? dp : 6 }).format(v);
-};
-const fmtN = (v: number | undefined | null) =>
-    v === undefined || v === null ? "N/A" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(v);
-const fmtPct = (v: number | undefined | null) => {
-    if (v === undefined || v === null) return { txt: "N/A", pos: true };
-    return { txt: `${v > 0 ? "+" : ""}${v.toFixed(2)}%`, pos: v >= 0 };
-};
-const fmtDate = (s: string | undefined) =>
-    !s ? "N/A" : new Date(s).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+const fmt$ = formatCurrency;
+const fmtN = formatNumber;
+const fmtPct = formatPercentage;
+const fmtDate = formatDate;
 
 // Terminal row component
-const Row = ({ label, value, valueClass = "text-white font-mono" }: { label: string; value: React.ReactNode; valueClass?: string }) => (
-    <div className="flex justify-between items-center py-[7px] border-b border-white/5 last:border-0">
-        <span className="text-[13px] tracking-widest text-zinc-500 uppercase font-mono">{label}</span>
-        <span className={`text-[14px] ${valueClass}`}>{value}</span>
-    </div>
-);
-
-const PctBadge = ({ v }: { v: number | undefined | null }) => {
-    const { txt, pos } = fmtPct(v);
-    return <span className={`font-mono text-[14px] ${pos ? "text-emerald-400" : "text-red-400"}`}>{txt}</span>;
-};
 
 export default function CryptoPriceModal({ isOpen, onClose }: CryptoPriceModalProps) {
-    const [cryptoData, setCryptoData] = useState<CryptoData[]>([]);
-    const [filteredData, setFilteredData] = useState<CryptoData[]>([]);
-    const [searchQuery, setSearchQuery] = useState("");
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { cryptoData, loading, error, refetch: fetchCryptoData } = useCryptoPrices(isOpen);
+    const { searchQuery, setSearchQuery, filteredData } = useCryptoSearch(cryptoData);
 
     const [selectedCoin, setSelectedCoin] = useState<CryptoData | null>(null);
-    const [coinDetails, setCoinDetails] = useState<CoinDetails | null>(null);
-    const [detailLoading, setDetailLoading] = useState(false);
-    const [detailError, setDetailError] = useState<string | null>(null);
+    const { coinDetails, detailLoading, detailError, fetchCoinDetails, resetCoinDetails } = useCoinDetails();
 
-    const fetchCryptoData = async () => {
-        try {
-            setLoading(true);
-            const response = await axios.get("/api/crypto-prices");
-            const allCoins = response.data;
-            if (!Array.isArray(allCoins)) throw new Error(allCoins?.error || "Invalid response");
-            setCryptoData(allCoins);
-            setFilteredData(allCoins);
-            setError(null);
-        } catch (err: any) {
-            if (err.response?.status === 429) setError("Rate limit exceeded. Please wait 1-2 minutes.");
-            else setError(err.message || "Failed to fetch crypto data.");
-        } finally { setLoading(false); }
-    };
-
-    const fetchCoinDetails = async (coinId: string) => {
-        try {
-            setDetailLoading(true); setDetailError(null); setCoinDetails(null);
-            const response = await axios.get(`/api/crypto-details/${coinId}`);
-            setCoinDetails(response.data);
-        } catch (err: any) {
-            setDetailError(err.response?.data?.error || "Failed to load coin details.");
-        } finally { setDetailLoading(false); }
-    };
-
-    useEffect(() => {
-        if (isOpen) {
-            fetchCryptoData();
-            const interval = setInterval(fetchCryptoData, 60000);
-            return () => clearInterval(interval);
-        }
-    }, [isOpen]);
-
-    useEffect(() => {
-        if (searchQuery.trim() === "") setFilteredData(cryptoData);
-        else {
-            setFilteredData(cryptoData.filter(c =>
-                c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                c.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-            ));
-        }
-    }, [searchQuery, cryptoData]);
-
-    useEffect(() => {
-        if (isOpen) document.body.style.overflow = "hidden";
-        else document.body.style.overflow = "";
-        return () => { document.body.style.overflow = ""; };
-    }, [isOpen]);
+    useLockBodyScroll(isOpen);
 
     const handleCoinClick = (coin: CryptoData) => { setSelectedCoin(coin); fetchCoinDetails(coin.id); };
-    const handleBack = () => { setSelectedCoin(null); setCoinDetails(null); setDetailError(null); };
+    const handleBack = () => { setSelectedCoin(null); resetCoinDetails(); };
 
     const formatPrice = (price: number) =>
         price >= 1 ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${price.toFixed(4)}`;

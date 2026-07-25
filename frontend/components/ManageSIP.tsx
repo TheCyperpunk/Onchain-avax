@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useLockBodyScroll } from "../hooks/useLockBodyScroll";
 import Image from "next/image";
 import avaxLogo from "../image/avalanche-avax-logo.png";
 import { Activity } from "lucide-react";
@@ -61,15 +62,7 @@ export default function ManageSIP({ isOpen, onClose, activeSIPs, totalValue, onE
 
     const filteredSIPs = getFilteredSIPs();
 
-    // Lock body scroll when modal is open
-    useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-        return () => { document.body.style.overflow = ''; };
-    }, [isOpen]);
+    useLockBodyScroll(isOpen);
 
     if (!isOpen) return null;
 

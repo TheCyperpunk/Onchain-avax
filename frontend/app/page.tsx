@@ -1,18 +1,31 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId } from "wagmi";
-import { useSIPContract, formatSIPData, generatePoolName, getTotalPortfolioValue, getTotalExecutedAmount } from "../hooks/useSIPContract";
-import Dashboard from "../components/Dashboard";
-import CryptoPriceModal from "../components/CryptoPriceModal";
-import ManageSIP from "../components/ManageSIP";
-import ProfileModal from "../components/ProfileModal";
+import { useSIPContract, generatePoolName, getTotalPortfolioValue, getTotalExecutedAmount } from "../hooks/useSIPContract";
 import TransactionSIPs from "../components/TransactionSIPs";
+import PortfolioSummary from "../components/PortfolioSummary";
+import TransactionStatusOverlay from "../components/TransactionStatusOverlay";
+import SIPCreationModal from "../components/SIPCreationModal";
+import AppHeader from "../components/AppHeader";
+import WalletConnectControl from "../components/WalletConnectControl";
+import NetworkStatus from "../components/NetworkStatus";
+import HeaderNavButton from "../components/HeaderNavButton";
+import SIPFrequencyOptions from "../components/SIPFrequencyOptions";
+import FormErrorMessage from "../components/FormErrorMessage";
+import { toDashboardSIPs, toManageSIPs } from "../lib/sip/viewModels";
 import TokenSelector from "../components/TokenSelector";
 import { RefreshCw } from "lucide-react";
 import useWindowSize from "react-use/lib/useWindowSize";
-import Confetti from "react-confetti";
+
+// These panels are only needed after a user opens them. Loading them on demand
+// preserves the existing UI while reducing the initial wallet-dashboard bundle.
+const Dashboard = dynamic(() => import("../components/Dashboard"), { ssr: false });
+const CryptoPriceModal = dynamic(() => import("../components/CryptoPriceModal"), { ssr: false });
+const ManageSIP = dynamic(() => import("../components/ManageSIP"), { ssr: false });
+const ProfileModal = dynamic(() => import("../components/ProfileModal"), { ssr: false });
 
 // Define proper TypeScript interfaces
 interface FrequencyOption {
@@ -299,7 +312,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black text-white font-sans" style={{ backgroundImage: "url('/background.gif')", backgroundSize: "600px", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundAttachment: "fixed" }}>
       {/* Header */}
-      <header className="bg-black/80 backdrop-blur-md px-6 py-2">
+      <AppHeader>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2 md:gap-3 text-xl md:text-2xl font-bold">
             <img src="/logo-text.png" alt="ONCHAINSIP" className="h-8 md:h-12" />
@@ -309,131 +322,50 @@ export default function Home() {
           {/* Navigation Buttons */}
           {isConnected && (
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => setShowDashboard(true)}
-                disabled={!isAvaxFuji}
-                className={`px-4 py-2 rounded-lg text-sm font-normal transition-all flex items-center gap-2 ${isAvaxFuji ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-gray-600 cursor-not-allowed'}`}
-              >
+              <HeaderNavButton onClick={() => setShowDashboard(true)} isEnabled={isAvaxFuji}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 13h2v8H3v-8zm6-4h2v12H9V9zm6-6h2v18h-2V3z" />
                 </svg>
                 Dashboard
-              </button>
+              </HeaderNavButton>
 
-              <button
-                onClick={() => setShowCryptoModal(true)}
-                disabled={!isAvaxFuji}
-                className={`px-4 py-2 rounded-lg text-sm font-normal transition-all flex items-center gap-2 ${isAvaxFuji ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-gray-600 cursor-not-allowed'}`}
-              >
+              <HeaderNavButton onClick={() => setShowCryptoModal(true)} isEnabled={isAvaxFuji}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 Crypto Price
-              </button>
+              </HeaderNavButton>
 
-              <button
-                onClick={() => setShowManageSIP(true)}
-                disabled={!isAvaxFuji}
-                className={`px-4 py-2 rounded-lg text-sm font-normal transition-all flex items-center gap-2 ${isAvaxFuji ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-gray-600 cursor-not-allowed'}`}
-              >
+              <HeaderNavButton onClick={() => setShowManageSIP(true)} isEnabled={isAvaxFuji}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 Manage
-              </button>
+              </HeaderNavButton>
 
-              <button
-                onClick={() => setShowProfileModal(true)}
-                disabled={!isAvaxFuji}
-                className={`px-4 py-2 rounded-lg text-sm font-normal transition-all flex items-center gap-2 ${isAvaxFuji ? 'text-slate-400 hover:text-white hover:bg-white/10' : 'text-gray-600 cursor-not-allowed'}`}
-              >
+              <HeaderNavButton onClick={() => setShowProfileModal(true)} isEnabled={isAvaxFuji}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
                 Profile
-              </button>
+              </HeaderNavButton>
             </div>
           )}
 
           <div className="flex items-center gap-4">
-            {isConnected && (
-              <div className="flex items-center gap-2 bg-white/5 px-3 py-2 rounded-full">
-                <div className={`w-2 h-2 rounded-full ${isAvaxFuji ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                <span className="text-sm">
-                  {isAvaxFuji ? 'Avalanche Fuji Testnet' : 'Wrong Network'}
-                </span>
-              </div>
-            )}
-            <ConnectButton
-              showBalance={{
-                smallScreen: false,
-                largeScreen: true,
-              }}
-              chainStatus={{
-                smallScreen: 'icon',
-                largeScreen: 'full',
-              }}
-              accountStatus={{
-                smallScreen: 'avatar',
-                largeScreen: 'full',
-              }}
-            />
+            {isConnected && <NetworkStatus isAvaxFuji={isAvaxFuji} />}
+            <WalletConnectControl />
           </div>
         </div>
-      </header>
+      </AppHeader>
 
-      {/* Confetti Animation */}
-      {txStatus && txStatus.type === 'success' && (
-        <div className="fixed inset-0 z-[110] pointer-events-none">
-          <Confetti 
-            width={width} 
-            height={height} 
-            recycle={false} 
-            numberOfPieces={500}
-            gravity={0.15}
-          />
-        </div>
-      )}
-
-      {/* Stacked Toast Notification */}
-      {txStatus && txStatus.type === 'success' && (
-        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] transition-all duration-500 ease-out animate-in slide-in-from-top-4 fade-in">
-          <div className="relative">
-            {/* Background stacked layers for the "multiple notifications" effect */}
-            <div className="absolute top-1.5 left-1/2 transform -translate-x-1/2 w-[90%] h-full bg-[#8e8e8e] rounded-xl -z-20"></div>
-            <div className="absolute top-0.5 left-1/2 transform -translate-x-1/2 w-[95%] h-full bg-[#a3a3a3] rounded-xl -z-10"></div>
-            
-            {/* Main top toast card */}
-            <div className="bg-[#b5b5b5] rounded-xl p-3 min-w-[280px] max-w-sm flex flex-col gap-1 shadow-2xl">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2.5">
-                  {/* Icon area */}
-                  <div className={`w-6 h-6 rounded-md flex items-center justify-center bg-white text-emerald-500 shadow-sm`}>
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-gray-800 text-xs font-bold uppercase tracking-wider">
-                      SUCCESS
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center">
-                  <span className="text-gray-600 text-[10px] font-medium mt-0.5">Just now</span>
-                </div>
-              </div>
-
-              <div className="pt-0.5 pl-1">
-                <p className="text-gray-900 font-bold text-sm">
-                  {txStatus.message}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <TransactionStatusOverlay
+        message={txStatus?.message ?? null}
+        isSuccess={txStatus?.type === 'success'}
+        width={width}
+        height={height}
+      />
 
       {/* Main Content */}
       <main className="px-6 py-12 max-w-6xl mx-auto">
@@ -475,25 +407,7 @@ export default function Home() {
             )}
 
             {/* Portfolio Summary */}
-            {hasActiveSIPs && (
-              <div className="bg-white/10 rounded-2xl p-6">
-                <h2 className="text-2xl font-bold mb-4">Portfolio Overview</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-slate-400 text-sm mb-1">Total Invested</p>
-                    <p className="text-2xl font-bold text-green-500">{totalPortfolioValue} AVAX</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 text-sm mb-1">Total Executed</p>
-                    <p className="text-2xl font-bold text-green-500">{totalExecutedAmount} AVAX</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 text-sm mb-1">Active SIPs</p>
-                    <p className="text-2xl font-bold text-green-500">{finalSIPs.length}</p>
-                  </div>
-                </div>
-              </div>
-            )}
+            {hasActiveSIPs && <PortfolioSummary totalPortfolioValue={totalPortfolioValue} totalExecutedAmount={totalExecutedAmount} totalSIPs={finalSIPs.length} />}
 
             {/* Quick Actions */}
             <div className="flex gap-4 justify-center">
@@ -530,7 +444,7 @@ export default function Home() {
 
             {/* SIP Creation Form Modal */}
             {showSIPForm && (
-              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
+              <SIPCreationModal isOpen={showSIPForm}>
                 <div className="bg-slate-900/95 rounded-2xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto">
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="text-2xl font-bold">Create SIP Plan</h3>
@@ -606,50 +520,10 @@ export default function Home() {
                   </div>
 
                   {/* Error Display */}
-                  {errors && (
-                    <div className="bg-red-500/20 border border-red-500 px-3 py-3 rounded-lg mb-5">
-                      <p className="text-red-500 text-sm font-medium">{errors}</p>
-                    </div>
-                  )}
+                  <FormErrorMessage message={errors} />
 
                   {/* Frequency Options */}
-                  {frequencies.length > 0 && !errors && (
-                    <div className="mb-5">
-                      <label className="block mb-2 text-gray-300 font-medium">
-                        Choose SIP Frequency
-                      </label>
-                      <div className="flex flex-col gap-2">
-                        {frequencies.map((f) => (
-                          <label
-                            key={f.label}
-                            className={`flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all ${selectedFreq?.label === f.label ? 'bg-blue-500/20' : 'bg-black/20'}`}
-                            onClick={() => setSelectedFreq(f)}
-                          >
-                            <div className="flex items-center">
-                              <input
-                                type="radio"
-                                name="frequency"
-                                value={f.label}
-                                checked={selectedFreq?.label === f.label}
-                                onChange={() => setSelectedFreq(f)}
-                                className="mr-3 w-4 h-4 accent-blue-500"
-                              />
-                              <div className="flex flex-col">
-                                <span className="text-base font-semibold">{f.label}</span>
-                                <p className="text-gray-400 text-sm m-0">{f.intervals} payments</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-base font-bold text-green-500 m-0">
-                                {f.sipAmount} AVAX
-                              </p>
-                              <p className="text-gray-400 text-xs m-0">per payment</p>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {frequencies.length > 0 && !errors && <SIPFrequencyOptions frequencies={frequencies} selectedFrequency={selectedFreq} onSelect={setSelectedFreq} />}
 
                   {/* Action Buttons */}
                   <div className="flex gap-3">
@@ -670,7 +544,7 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-              </div>
+              </SIPCreationModal>
             )}
           </div>
         )}
@@ -683,18 +557,7 @@ export default function Home() {
           onClose={() => setShowDashboard(false)}
           totalSIPs={finalSIPs.length}
           totalInvested={totalPortfolioValue}
-          activeSIPs={finalSIPs.map((sip, index) => {
-            const formatted = formatSIPData(sip);
-            return {
-              id: sip.poolName || `sip-${index}`,
-              tokenName: "AVAX",
-              totalInvested: formatted?.totalAmount || "0",
-              currentValue: formatted?.executedAmount || "0",
-              progress: formatted?.progress || 0,
-              nextExecution: formatted?.nextExecution?.toLocaleDateString() || "N/A",
-              status: sip.active ? "active" : "completed"
-            };
-          })}
+          activeSIPs={toDashboardSIPs(finalSIPs)}
         />
       )}
 
@@ -712,42 +575,7 @@ export default function Home() {
           executeLoading={executeLoading}
           finalizeLoading={finalizeLoading}
           selectedPool={selectedSIPPool}
-          activeSIPs={finalSIPs.map((sip, index) => {
-            const formatted = formatSIPData(sip);
-            const totalAmt = Number(sip.totalAmount);
-            const executedAmt = Number(sip.executedAmount);
-            const perInterval = Number(sip.amountPerInterval);
-            const installmentsDone = perInterval > 0 ? Math.floor(executedAmt / perInterval) : 0;
-            const totalInstallments = perInterval > 0 ? Math.floor(totalAmt / perInterval) : 0;
-            const frequencySeconds = Number(sip.frequency);
-            const frequencyDays = frequencySeconds / (24 * 3600);
-
-            let frequencyLabel = 'Custom';
-            if (frequencyDays >= 365) frequencyLabel = 'Yearly';
-            else if (frequencyDays >= 90) frequencyLabel = 'Quarterly';
-            else if (frequencyDays >= 28) frequencyLabel = 'Monthly';
-            else if (frequencyDays >= 7) frequencyLabel = 'Weekly';
-            else if (frequencyDays >= 1) frequencyLabel = 'Daily';
-
-            return {
-              id: sip.poolName || `sip-${index}`,
-              tokenName: "AVAX",
-              totalAmount: formatted?.totalAmount || "0",
-              executedAmount: formatted?.executedAmount || "0",
-              remainingAmount: formatted?.remainingAmount || "0",
-              amountPerInterval: formatted?.amountPerInterval || "0",
-              installmentsDone,
-              totalInstallments,
-              remainingInstallments: totalInstallments - installmentsDone,
-              frequencyLabel,
-              progress: formatted?.progress || 0,
-              nextExecution: formatted?.nextExecution?.toLocaleDateString() || "N/A",
-              maturityDate: formatted?.maturity?.toLocaleDateString() || "N/A",
-              active: sip.active,
-              canExecute: formatted?.canExecute || false,
-              canFinalize: formatted?.canFinalize || false,
-            };
-          })}
+          activeSIPs={toManageSIPs(finalSIPs)}
         />
       )}
 
